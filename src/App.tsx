@@ -212,7 +212,7 @@ ${template.support}`;
                   setEditingId(null);
                   setTitle('');
                   setPurpose('');
-                  setSupport('');
+                  setSupport(createDefaultSupport(''));
                 }}
                 style={subButtonStyle}
               >
