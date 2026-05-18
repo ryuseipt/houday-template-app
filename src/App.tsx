@@ -80,9 +80,16 @@ export default function App() {
   const handleTitleChange = (value) => {
   setTitle(value);
 
-  if (support.trim() === '') {
-    setSupport(createDefaultSupport(value));
-  }
+  setSupport((prev) => {
+    if (prev.trim() === '') {
+      return createDefaultSupport(value);
+    }
+
+    return prev.replace(
+      /活動では「.*?」/,
+      `活動では「${value}」`
+    );
+  });
 
   const matchedKeyword = Object.keys(purposeSuggestions).find((keyword) =>
     value.includes(keyword)
