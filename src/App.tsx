@@ -108,15 +108,15 @@ export default function App() {
       setIsGeneratingPurpose(true);
 
       const response = await fetch("/api/suggest-purpose", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
-  title,
-  templates,
-}),
-
+  method: "POST",
+  headers: {
+    "Content-Type": "application/json",
+  },
+  body: JSON.stringify({
+    title,
+    templates,
+  }),
+});
       const data = await response.json();
 
       if (data?.purpose) {
