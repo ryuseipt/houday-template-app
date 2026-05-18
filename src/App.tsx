@@ -361,3 +361,13 @@ const textareaStyle = {
   borderRadius: 10,
   border: "1px solid #cbd5e1",
 };
+
+const badgeStyle = {
+  display: "inline-block",
+  background: "#e0f2fe",
+  color: "#0369a1",
+  padding: "4px 10px",
+  borderRadius: 999,
+  fontSize: 12,
+  fontWeight: "bold",
+};
