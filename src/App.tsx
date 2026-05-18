@@ -59,4 +59,14 @@ export default function App() {
     if (template.includes("活動では「")) {
       return template.replace(/活動では「.*?」/, `活動では「${activityTitle}」`);
     }
+
+    return `${template}\n\n活動では「${activityTitle}」を行いました。`;
+  };
+
+  const createDefaultSupport = (activityTitle = "", type = recordType) => {
+    const base = type === "jihatsu" ? jihatsuTemplate : houdayTemplate;
+    return applyActivityTitle(base, activityTitle);
+  };
+
+  const [title, setTitle] = useState("");
 };
