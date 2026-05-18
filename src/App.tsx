@@ -78,17 +78,20 @@ export default function App() {
   }, []);
 
   const handleTitleChange = (value) => {
-    setTitle(value);
+  setTitle(value);
+
+  if (support.trim() === '') {
     setSupport(createDefaultSupport(value));
+  }
 
-    const matchedKeyword = Object.keys(purposeSuggestions).find((keyword) =>
-      value.includes(keyword)
-    );
+  const matchedKeyword = Object.keys(purposeSuggestions).find((keyword) =>
+    value.includes(keyword)
+  );
 
-    if (matchedKeyword) {
-      setPurpose(purposeSuggestions[matchedKeyword]);
-    }
-  };
+  if (matchedKeyword) {
+    setPurpose(purposeSuggestions[matchedKeyword]);
+  }
+};
 
   const saveTemplate = async () => {
     if (!title) {
