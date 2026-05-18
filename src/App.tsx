@@ -477,46 +477,49 @@ ${template.support}`;
               </p>
             )}
 
-            {filteredTemplates.map((template) => (
-              <div key={template.id} style={templateCardStyle}>
-                <div style={badgeStyle}>
-                  {template.recordType === "jihatsu"
-                    ? "児童発達支援"
-                    : "放デイ"}
-                </div>
-
-                <h3>{template.title}</h3>
-
-                <p>
-                  <b>目的：</b>
-                  {template.purpose}
-                </p>
-
-                <p style={{ whiteSpace: "pre-wrap" }}>{template.support}</p>
-
-                <button onClick={() => editTemplate(template)}>編集</button>
-
-                <button
-                  onClick={() => copyTemplate(template)}
-                  style={{ marginLeft: 8 }}
-                >
-                  {copiedId === template.id ? "コピー済み" : "コピー"}
-                </button>
-
-                <button
-                  onClick={() => deleteTemplate(template.id)}
-                  style={{ marginLeft: 8 }}
-                >
-                  削除
-                </button>
-              </div>
-            ))}
-          </div>
-        </div>
+            {search.trim() !== "" &&
+  filteredTemplates.map((template) => (
+    <div key={template.id} style={templateCardStyle}>
+      <div style={badgeStyle}>
+        {template.recordType === "jihatsu"
+          ? "児童発達支援"
+          : "放デイ"}
       </div>
+
+      <h3>{template.title}</h3>
+
+      <p>
+        <b>目的：</b>
+        {template.purpose}
+      </p>
+
+      <p style={{ whiteSpace: "pre-wrap" }}>
+        {template.support}
+      </p>
+
+      <button
+        onClick={() => editTemplate(template)}
+      >
+        編集
+      </button>
+
+      <button
+        onClick={() => copyTemplate(template)}
+        style={{ marginLeft: 8 }}
+      >
+        {copiedId === template.id
+          ? "コピー済み"
+          : "コピー"}
+      </button>
+
+      <button
+        onClick={() => deleteTemplate(template.id)}
+        style={{ marginLeft: 8 }}
+      >
+        削除
+      </button>
     </div>
-  );
-}
+  ))}
 
 const cardStyle = {
   background: "white",
