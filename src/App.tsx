@@ -137,7 +137,7 @@ export default function App() {
 
     const timer = setTimeout(() => {
       generatePurpose(false);
-    }, 800);
+    }, 300);
 
     return () => clearTimeout(timer);
   }, [title, purposeEdited]);
