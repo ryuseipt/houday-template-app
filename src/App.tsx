@@ -1,5 +1,14 @@
 // @ts-nocheck
 import { useState, useEffect } from "react";
+import {
+  collection,
+  addDoc,
+  getDocs,
+  deleteDoc,
+  updateDoc,
+  doc,
+} from "firebase/firestore";
+import { db } from "./firebase";
 
 const DEFAULT_HOUDAY_TEMPLATE = `スタッフの送迎にて来所する。
 ・学習（）
@@ -21,29 +30,117 @@ const DEFAULT_JIHATSU_TEMPLATE = `保育者の送迎にて登園しています�
 
 export default function App() {
   const [recordType, setRecordType] = useState("houday");
+  const [houdayTemplate, setHoudayTemplate] = useState(DEFAULT_HOUDAY_TEMPLATE);
+  const [jihatsuTemplate, setJihatsuTemplate] = useState(DEFAULT_JIHATSU_TEMPLATE);
+  const [showTemplateEditor, setShowTemplateEditor] = useState(false);
+
   const [title, setTitle] = useState("");
   const [purpose, setPurpose] = useState("");
+  const [purposeEdited, setPurposeEdited] = useState(false);
   const [support, setSupport] = useState(DEFAULT_HOUDAY_TEMPLATE);
+
+  const [templates, setTemplates] = useState([]);
+  const [editingId, setEditingId] = useState(null);
+  const [copiedId, setCopiedId] = useState(null);
+  const [search, setSearch] = useState("");
   const [isGeneratingPurpose, setIsGeneratingPurpose] = useState(false);
+  const [isMobile, setIsMobile] = useState(window.innerWidth < 800);
 
-  const createDefaultSupport = (
-    activityTitle = "",
-    type = recordType
-  ) => {
-    const template =
-      type === "jihatsu"
-        ? DEFAULT_JIHATSU_TEMPLATE
-        : DEFAULT_HOUDAY_TEMPLATE;
+  const applyActivityTitle = (template, activityTitle = "") => {
+    if (template.includes("活動では「")) {
+      return template.replace(
+        /活動では「.*?」/,
+        `活動では「${activityTitle}」`
+      );
+    }
 
-    return template.replace(
-      /活動では「.*?」/,
-      `活動では「${activityTitle}」`
-    );
+    return `${template}
+
+活動では「${activityTitle}」を行いました。`;
+  };
+
+  const createDefaultSupport = (activityTitle = "", type = recordType) => {
+    const base = type === "jihatsu" ? jihatsuTemplate : houdayTemplate;
+    return applyActivityTitle(base, activityTitle);
   };
 
   useEffect(() => {
-    setSupport(createDefaultSupport("", recordType));
+    const savedHouday = localStorage.getItem("houdayDefaultTemplate");
+    const savedJihatsu = localStorage.getItem("jihatsuDefaultTemplate");
+
+    if (savedHouday) setHoudayTemplate(savedHouday);
+    if (savedJihatsu) setJihatsuTemplate(savedJihatsu);
+
+    setSupport(applyActivityTitle(savedHouday || DEFAULT_HOUDAY_TEMPLATE, ""));
+    loadTemplates();
   }, []);
+
+  useEffect(() => {
+    const checkSize = () => setIsMobile(window.innerWidth < 800);
+    window.addEventListener("resize", checkSize);
+    return () => window.removeEventListener("resize", checkSize);
+  }, []);
+
+  const loadTemplates = async () => {
+    const snapshot = await getDocs(collection(db, "templates"));
+
+    const data = snapshot.docs.map((doc) => ({
+      id: doc.id,
+      ...doc.data(),
+    }));
+
+    const sortedData = data.sort((a, b) => {
+      const aTime = a.createdAt?.seconds || 0;
+      const bTime = b.createdAt?.seconds || 0;
+      return bTime - aTime;
+    });
+
+    setTemplates(sortedData);
+  };
+
+  const generatePurpose = async (showAlert = true) => {
+    if (!title.trim()) {
+      if (showAlert) alert("先に活動名を入力してください");
+      return;
+    }
+
+    try {
+      setIsGeneratingPurpose(true);
+
+      const response = await fetch("/api/suggest-purpose", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({ title }),
+      });
+
+      const data = await response.json();
+
+      if (data?.purpose) {
+        setPurpose(data.purpose);
+        setPurposeEdited(false);
+      } else if (showAlert) {
+        alert("AIから目的が返ってきませんでした");
+      }
+    } catch (error) {
+      console.error(error);
+      if (showAlert) alert("AI目的生成に失敗しました");
+    } finally {
+      setIsGeneratingPurpose(false);
+    }
+  };
+
+  useEffect(() => {
+    if (!title.trim()) return;
+    if (purposeEdited) return;
+
+    const timer = setTimeout(() => {
+      generatePurpose(false);
+    }, 800);
+
+    return () => clearTimeout(timer);
+  }, [title, purposeEdited]);
 
   const handleTypeChange = (type) => {
     setRecordType(type);
@@ -65,183 +162,452 @@ export default function App() {
     });
   };
 
-  const generatePurpose = async () => {
+  const saveDefaultTemplates = () => {
+    localStorage.setItem("houdayDefaultTemplate", houdayTemplate);
+    localStorage.setItem("jihatsuDefaultTemplate", jihatsuTemplate);
+
+    setSupport(createDefaultSupport(title, recordType));
+
+    alert("初期テンプレートを保存しました");
+  };
+
+  const resetDefaultTemplates = () => {
+    setHoudayTemplate(DEFAULT_HOUDAY_TEMPLATE);
+    setJihatsuTemplate(DEFAULT_JIHATSU_TEMPLATE);
+
+    localStorage.setItem("houdayDefaultTemplate", DEFAULT_HOUDAY_TEMPLATE);
+    localStorage.setItem("jihatsuDefaultTemplate", DEFAULT_JIHATSU_TEMPLATE);
+
+    setSupport(
+      recordType === "jihatsu"
+        ? applyActivityTitle(DEFAULT_JIHATSU_TEMPLATE, title)
+        : applyActivityTitle(DEFAULT_HOUDAY_TEMPLATE, title)
+    );
+
+    alert("初期テンプレートを初期状態に戻しました");
+  };
+
+  const saveTemplate = async () => {
     if (!title.trim()) {
-      alert("先に活動名を入力してください");
+      alert("活動名を入力してください");
       return;
     }
 
-    try {
-      setIsGeneratingPurpose(true);
-
-      const response = await fetch("/api/suggest-purpose", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({ title }),
+    if (editingId) {
+      await updateDoc(doc(db, "templates", editingId), {
+        recordType,
+        title,
+        purpose,
+        support,
       });
 
-      const data = await response.json();
+      alert("更新しました");
+    } else {
+      await addDoc(collection(db, "templates"), {
+        recordType,
+        title,
+        purpose,
+        support,
+        createdAt: new Date(),
+      });
 
-      if (data?.purpose) {
-        setPurpose(data.purpose);
-      }
-    } catch (error) {
-      console.error(error);
-      alert("AI生成に失敗しました");
-    } finally {
-      setIsGeneratingPurpose(false);
+      alert("保存しました");
     }
+
+    await loadTemplates();
+
+    setEditingId(null);
+    setTitle("");
+    setPurpose("");
+    setPurposeEdited(false);
+    setSupport(createDefaultSupport("", recordType));
   };
 
+  const editTemplate = (template) => {
+    const type = template.recordType || "houday";
+
+    setEditingId(template.id);
+    setRecordType(type);
+    setTitle(template.title || "");
+    setPurpose(template.purpose || "");
+    setPurposeEdited(true);
+    setSupport(template.support || createDefaultSupport(template.title || "", type));
+
+    window.scrollTo({ top: 0, behavior: "smooth" });
+  };
+
+  const deleteTemplate = async (id) => {
+    if (!confirm("削除してもよろしいですか？")) return;
+
+    await deleteDoc(doc(db, "templates", id));
+    await loadTemplates();
+    alert("削除しました");
+  };
+
+  const copyTemplate = async (template) => {
+    const label = template.recordType === "jihatsu" ? "児童発達支援" : "放デイ";
+
+    const text = `【種別】
+${label}
+
+【活動名】
+${template.title}
+
+【活動の目的】
+${template.purpose}
+
+【支援内容】
+${template.support}`;
+
+    await navigator.clipboard.writeText(text);
+
+    setCopiedId(template.id);
+
+    setTimeout(() => {
+      setCopiedId(null);
+    }, 1500);
+  };
+
+  const filteredTemplates = templates.filter((template) => {
+    const keyword = search.toLowerCase();
+
+    const typeLabel =
+      template.recordType === "jihatsu" ? "児童発達支援 児発" : "放デイ";
+
+    const text =
+      `${typeLabel} ${template.title} ${template.purpose} ${template.support}`.toLowerCase();
+
+    return text.includes(keyword);
+  });
+
   return (
-    <div
-      style={{
-        padding: 20,
-        background: "#f1f5f9",
-        minHeight: "100vh",
-      }}
-    >
-      <div
-        style={{
-          maxWidth: 900,
-          margin: "0 auto",
-        }}
-      >
-        <h1 style={{ textAlign: "center" }}>
+    <div style={{ background: "#f1f5f9", minHeight: "100vh", padding: 16 }}>
+      <div style={{ maxWidth: 1100, margin: "0 auto" }}>
+        <h1 style={{ textAlign: "center", fontSize: isMobile ? 28 : 36 }}>
           活動記録テンプレート
         </h1>
 
-        <div style={{ marginBottom: 20 }}>
-          <div
-            style={{
-              display: "flex",
-              alignItems: "center",
-              gap: 10,
-            }}
-          >
-            <span>放デイ</span>
-
-            <button
-              onClick={() =>
-                handleTypeChange(
-                  recordType === "houday"
-                    ? "jihatsu"
-                    : "houday"
-                )
-              }
-              style={{
-                width: 60,
-                height: 30,
-                borderRadius: 999,
-                border: "none",
-                background:
-                  recordType === "jihatsu"
-                    ? "#2563eb"
-                    : "#111827",
-                position: "relative",
-                cursor: "pointer",
-              }}
-            >
-              <span
-                style={{
-                  width: 24,
-                  height: 24,
-                  borderRadius: "50%",
-                  background: "white",
-                  position: "absolute",
-                  top: 3,
-                  left:
-                    recordType === "jihatsu"
-                      ? 33
-                      : 3,
-                  transition: "0.2s",
-                }}
-              />
-            </button>
-
-            <span>児童発達支援</span>
-          </div>
-        </div>
-
-        <input
-          value={title}
-          onChange={(e) =>
-            handleTitleChange(e.target.value)
-          }
-          placeholder="活動名"
+        <div
           style={{
-            width: "100%",
-            padding: 12,
-            marginBottom: 12,
-            borderRadius: 10,
-            border: "1px solid #cbd5e1",
-          }}
-        />
-
-        <button
-          onClick={generatePurpose}
-          style={{
-            padding: "10px 16px",
-            borderRadius: 10,
-            border: "none",
-            background: "#2563eb",
-            color: "white",
-            marginBottom: 12,
-            cursor: "pointer",
+            display: "grid",
+            gridTemplateColumns: isMobile ? "1fr" : "1fr 1fr",
+            gap: 20,
+            alignItems: "start",
           }}
         >
-          {isGeneratingPurpose
-            ? "AI生成中..."
-            : "AIで目的を生成"}
-        </button>
+          <div style={cardStyle}>
+            <h2>{editingId ? "テンプレート編集中" : "新規テンプレート"}</h2>
 
-        <textarea
-          value={purpose}
-          onChange={(e) =>
-            setPurpose(e.target.value)
-          }
-          placeholder="活動の目的"
-          rows={5}
-          style={{
-            width: "100%",
-            padding: 12,
-            marginBottom: 12,
-            borderRadius: 10,
-            border: "1px solid #cbd5e1",
-            boxSizing: "border-box",
-          }}
-        />
+            <div style={{ marginBottom: 16 }}>
+              <p style={{ fontWeight: "bold", marginBottom: 8 }}>記録タイプ</p>
 
-        <textarea
-          value={support}
-          onChange={(e) => {
-            const value = e.target.value;
+              <div style={switchWrapStyle}>
+                <span
+                  style={{
+                    fontWeight: recordType === "houday" ? "bold" : "normal",
+                    color: recordType === "houday" ? "#111827" : "#64748b",
+                  }}
+                >
+                  放デイ
+                </span>
 
-            if (value.trim() === "") {
-              setSupport(
-                createDefaultSupport(
-                  title,
-                  recordType
-                )
-              );
-            } else {
-              setSupport(value);
-            }
-          }}
-          placeholder="支援内容"
-          rows={14}
-          style={{
-            width: "100%",
-            padding: 12,
-            marginBottom: 12,
-            borderRadius: 10,
-            border: "1px solid #cbd5e1",
-            boxSizing: "border-box",
-          }}
-        />
+                <button
+                  type="button"
+                  onClick={() =>
+                    handleTypeChange(
+                      recordType === "houday" ? "jihatsu" : "houday"
+                    )
+                  }
+                  style={{
+                    ...switchStyle,
+                    background:
+                      recordType === "jihatsu" ? "#2563eb" : "#111827",
+                  }}
+                >
+                  <span
+                    style={{
+                      ...switchCircleStyle,
+                      transform:
+                        recordType === "jihatsu"
+                          ? "translateX(34px)"
+                          : "translateX(0)",
+                    }}
+                  />
+                </button>
+
+                <span
+                  style={{
+                    fontWeight: recordType === "jihatsu" ? "bold" : "normal",
+                    color: recordType === "jihatsu" ? "#2563eb" : "#64748b",
+                  }}
+                >
+                  児童発達支援
+                </span>
+              </div>
+            </div>
+
+            <button
+              type="button"
+              onClick={() => setShowTemplateEditor(!showTemplateEditor)}
+              style={subButtonStyle}
+            >
+              {showTemplateEditor
+                ? "初期テンプレート編集を閉じる"
+                : "初期テンプレートを編集"}
+            </button>
+
+            {showTemplateEditor && (
+              <div style={templateEditorStyle}>
+                <h3>初期テンプレート編集</h3>
+
+                <p style={{ fontWeight: "bold" }}>放デイ用</p>
+                <textarea
+                  value={houdayTemplate}
+                  onChange={(e) => setHoudayTemplate(e.target.value)}
+                  rows={8}
+                  style={textareaStyle}
+                />
+
+                <p style={{ fontWeight: "bold" }}>児童発達支援用</p>
+                <textarea
+                  value={jihatsuTemplate}
+                  onChange={(e) => setJihatsuTemplate(e.target.value)}
+                  rows={10}
+                  style={textareaStyle}
+                />
+
+                <button onClick={saveDefaultTemplates} style={mainButtonStyle}>
+                  初期テンプレートを保存
+                </button>
+
+                <button
+                  onClick={resetDefaultTemplates}
+                  style={subButtonStyle}
+                >
+                  初期状態に戻す
+                </button>
+              </div>
+            )}
+
+            <input
+              value={title}
+              onChange={(e) => handleTitleChange(e.target.value)}
+              placeholder="活動名"
+              style={inputStyle}
+            />
+
+            <button
+              type="button"
+              onClick={() => generatePurpose(true)}
+              disabled={isGeneratingPurpose}
+              style={{
+                ...mainButtonStyle,
+                marginBottom: 12,
+                background: isGeneratingPurpose ? "#94a3b8" : "#2563eb",
+              }}
+            >
+              {isGeneratingPurpose
+                ? "AI生成中..."
+                : "AIで目的を再生成"}
+            </button>
+
+            <textarea
+              value={purpose}
+              onChange={(e) => {
+                const value = e.target.value;
+                setPurpose(value);
+                setPurposeEdited(value.trim() !== "");
+              }}
+              placeholder="活動の目的"
+              rows={5}
+              style={textareaStyle}
+            />
+
+            <textarea
+              value={support}
+              onChange={(e) => {
+                const value = e.target.value;
+
+                if (value.trim() === "") {
+                  setSupport(createDefaultSupport(title, recordType));
+                } else {
+                  setSupport(value);
+                }
+              }}
+              placeholder="支援内容"
+              rows={12}
+              style={textareaStyle}
+            />
+
+            <button onClick={saveTemplate} style={mainButtonStyle}>
+              {editingId ? "更新" : "テンプレートを保存"}
+            </button>
+
+            {editingId && (
+              <button
+                onClick={() => {
+                  setEditingId(null);
+                  setTitle("");
+                  setPurpose("");
+                  setPurposeEdited(false);
+                  setSupport(createDefaultSupport("", recordType));
+                }}
+                style={subButtonStyle}
+              >
+                キャンセル
+              </button>
+            )}
+          </div>
+
+          <div style={cardStyle}>
+            <h2>テンプレート検索</h2>
+
+            <input
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              placeholder="活動名・目的・支援内容で検索"
+              style={inputStyle}
+            />
+
+            {filteredTemplates.length === 0 && (
+              <p style={{ color: "#64748b" }}>
+                該当するテンプレートがありません
+              </p>
+            )}
+
+            {filteredTemplates.map((template) => (
+              <div key={template.id} style={templateCardStyle}>
+                <div style={badgeStyle}>
+                  {template.recordType === "jihatsu"
+                    ? "児童発達支援"
+                    : "放デイ"}
+                </div>
+
+                <h3>{template.title}</h3>
+
+                <p>
+                  <b>目的：</b>
+                  {template.purpose}
+                </p>
+
+                <p style={{ whiteSpace: "pre-wrap" }}>{template.support}</p>
+
+                <button onClick={() => editTemplate(template)}>編集</button>
+
+                <button
+                  onClick={() => copyTemplate(template)}
+                  style={{ marginLeft: 8 }}
+                >
+                  {copiedId === template.id ? "コピー済み" : "コピー"}
+                </button>
+
+                <button
+                  onClick={() => deleteTemplate(template.id)}
+                  style={{ marginLeft: 8 }}
+                >
+                  削除
+                </button>
+              </div>
+            ))}
+          </div>
+        </div>
       </div>
     </div>
   );
 }
+
+const cardStyle = {
+  background: "white",
+  padding: 20,
+  borderRadius: 20,
+  boxShadow: "0 4px 16px rgba(0,0,0,0.08)",
+};
+
+const templateCardStyle = {
+  border: "1px solid #e2e8f0",
+  padding: 16,
+  borderRadius: 16,
+  marginTop: 12,
+  background: "#ffffff",
+};
+
+const templateEditorStyle = {
+  marginTop: 16,
+  marginBottom: 16,
+  padding: 16,
+  borderRadius: 16,
+  background: "#f8fafc",
+  border: "1px solid #e2e8f0",
+};
+
+const inputStyle = {
+  width: "100%",
+  padding: 12,
+  marginBottom: 12,
+  boxSizing: "border-box",
+  borderRadius: 10,
+  border: "1px solid #cbd5e1",
+};
+
+const textareaStyle = {
+  width: "100%",
+  padding: 12,
+  marginBottom: 12,
+  boxSizing: "border-box",
+  borderRadius: 10,
+  border: "1px solid #cbd5e1",
+};
+
+const mainButtonStyle = {
+  padding: "10px 16px",
+  borderRadius: 10,
+  border: "none",
+  background: "#111827",
+  color: "white",
+  cursor: "pointer",
+};
+
+const subButtonStyle = {
+  padding: "10px 16px",
+  borderRadius: 10,
+  marginLeft: 10,
+  border: "1px solid #cbd5e1",
+  background: "white",
+  cursor: "pointer",
+};
+
+const switchWrapStyle = {
+  display: "flex",
+  alignItems: "center",
+  gap: 10,
+};
+
+const switchStyle = {
+  width: 66,
+  height: 32,
+  borderRadius: 999,
+  border: "none",
+  padding: 3,
+  cursor: "pointer",
+  position: "relative",
+  transition: "0.25s",
+};
+
+const switchCircleStyle = {
+  width: 26,
+  height: 26,
+  borderRadius: "50%",
+  background: "white",
+  display: "block",
+  transition: "0.25s",
+};
+
+const badgeStyle = {
+  display: "inline-block",
+  background: "#e0f2fe",
+  color: "#0369a1",
+  padding: "4px 10px",
+  borderRadius: 999,
+  fontSize: 12,
+  fontWeight: "bold",
+};
