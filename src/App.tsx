@@ -206,7 +206,15 @@ ${template.support}`;
 
             <textarea
               value={support}
-              onChange={(e) => setSupport(e.target.value)}
+              onChange={(e) => {
+  const value = e.target.value;
+
+  if (value.trim() === '') {
+    setSupport(createDefaultSupport(title));
+  } else {
+    setSupport(value);
+  }
+}}
               placeholder="支援内容"
               rows={10}
               style={textareaStyle}
