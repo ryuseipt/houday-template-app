@@ -10,6 +10,24 @@ import {
 } from "firebase/firestore";
 import { db } from "./firebase";
 
+const DEFAULT_HOUDAY_TEMPLATE = `スタッフの送迎にて来所する。
+・学習（）
+・脳バランサーキッズ２
+活動では「」を行いました。〇〇を目的としております。〇〇さんは〇〇することができました。
+活動終了時に今日のお約束を再確認して、振り返りを行ってからスタッフの送迎にて帰宅しています。`;
+
+const DEFAULT_JIHATSU_TEMPLATE = `保育者の送迎にて登園しています。
+登園後は、手洗いを済ませています。（排泄　有・無）
+水分摂取は登園時・体操前・帰園前などに〇回以上飲んでおります。
+自由時間の間で個別に脳バランサーキッズ２に取り組みました。
+
+朝の会では、「」の絵本を読み、日付の確認とお返事を行いました。
+体操は、「」の音楽に合わせて、リズムに乗りながら体を動かすことができています。
+活動前には、〇〇を行っています。〇〇することができています。
+活動では「」を行いました。〇〇を目的としております。
+今日は〇〇を行っております。〇〇さんは、〇〇することができていました。
+帰りの挨拶を済ませて、保育者の送迎にて帰園しています。`;
+
 export default function App() {
   const purposeSuggestions = {
     新聞紙: "手先操作, 感覚刺激, 協調運動, 集中力",
@@ -32,38 +50,29 @@ export default function App() {
     折り紙: "手先操作, 集中力, 工程理解, 想像力",
   };
 
-  const createHoudaySupport = (activityTitle = "") => {
-    return `スタッフの送迎にて来所する。
-・学習（）
-・脳バランサーキッズ２
-活動では「${activityTitle}」を行いました。〇〇を目的としております。〇〇さんは〇〇することができました。
-活動終了時に今日のお約束を再確認して、振り返りを行ってからスタッフの送迎にて帰宅しています。`;
-  };
+  const [recordType, setRecordType] = useState("houday");
+  const [houdayTemplate, setHoudayTemplate] = useState(DEFAULT_HOUDAY_TEMPLATE);
+  const [jihatsuTemplate, setJihatsuTemplate] = useState(DEFAULT_JIHATSU_TEMPLATE);
+  const [showTemplateEditor, setShowTemplateEditor] = useState(false);
 
-  const createJihatsuSupport = (activityTitle = "") => {
-    return `保育者の送迎にて登園しています。
-登園後は、手洗いを済ませています。（排泄　有・無）
-水分摂取は登園時・体操前・帰園前などに〇回以上飲んでおります。
-自由時間の間で個別に脳バランサーキッズ２に取り組みました。
+  const applyActivityTitle = (template, activityTitle = "") => {
+    if (template.includes("活動では「")) {
+      return template.replace(/活動では「.*?」/, `活動では「${activityTitle}」`);
+    }
 
-朝の会では、「」の絵本を読み、日付の確認とお返事を行いました。
-体操は、「」の音楽に合わせて、リズムに乗りながら体を動かすことができています。
-活動前には、〇〇を行っています。〇〇することができています。
-活動では「${activityTitle}」を行いました。〇〇を目的としております。
-今日は〇〇を行っております。〇〇さんは、〇〇することができていました。
-帰りの挨拶を済ませて、保育者の送迎にて帰園しています。`;
+    return `${template}
+
+活動では「${activityTitle}」を行いました。`;
   };
 
   const createDefaultSupport = (activityTitle = "", type = recordType) => {
-    return type === "jihatsu"
-      ? createJihatsuSupport(activityTitle)
-      : createHoudaySupport(activityTitle);
+    const base = type === "jihatsu" ? jihatsuTemplate : houdayTemplate;
+    return applyActivityTitle(base, activityTitle);
   };
 
-  const [recordType, setRecordType] = useState("houday");
   const [title, setTitle] = useState("");
   const [purpose, setPurpose] = useState("");
-  const [support, setSupport] = useState(createHoudaySupport(""));
+  const [support, setSupport] = useState(DEFAULT_HOUDAY_TEMPLATE);
   const [templates, setTemplates] = useState([]);
   const [editingId, setEditingId] = useState(null);
   const [copiedId, setCopiedId] = useState(null);
@@ -71,20 +80,23 @@ export default function App() {
   const [isMobile, setIsMobile] = useState(window.innerWidth < 800);
 
   useEffect(() => {
-    const checkSize = () => {
-      setIsMobile(window.innerWidth < 800);
-    };
+    const savedHouday = localStorage.getItem("houdayDefaultTemplate");
+    const savedJihatsu = localStorage.getItem("jihatsuDefaultTemplate");
 
+    if (savedHouday) setHoudayTemplate(savedHouday);
+    if (savedJihatsu) setJihatsuTemplate(savedJihatsu);
+
+    setSupport(applyActivityTitle(savedHouday || DEFAULT_HOUDAY_TEMPLATE, ""));
+  }, []);
+
+  useEffect(() => {
+    const checkSize = () => setIsMobile(window.innerWidth < 800);
     window.addEventListener("resize", checkSize);
-
-    return () => {
-      window.removeEventListener("resize", checkSize);
-    };
+    return () => window.removeEventListener("resize", checkSize);
   }, []);
 
   const loadTemplates = async () => {
     const snapshot = await getDocs(collection(db, "templates"));
-
     const data = snapshot.docs.map((doc) => ({
       id: doc.id,
       ...doc.data(),
@@ -126,6 +138,31 @@ export default function App() {
     if (matchedKeyword) {
       setPurpose(purposeSuggestions[matchedKeyword]);
     }
+  };
+
+  const saveDefaultTemplates = () => {
+    localStorage.setItem("houdayDefaultTemplate", houdayTemplate);
+    localStorage.setItem("jihatsuDefaultTemplate", jihatsuTemplate);
+
+    setSupport(createDefaultSupport(title, recordType));
+
+    alert("初期テンプレートを保存しました");
+  };
+
+  const resetDefaultTemplates = () => {
+    setHoudayTemplate(DEFAULT_HOUDAY_TEMPLATE);
+    setJihatsuTemplate(DEFAULT_JIHATSU_TEMPLATE);
+
+    localStorage.setItem("houdayDefaultTemplate", DEFAULT_HOUDAY_TEMPLATE);
+    localStorage.setItem("jihatsuDefaultTemplate", DEFAULT_JIHATSU_TEMPLATE);
+
+    setSupport(
+      recordType === "jihatsu"
+        ? applyActivityTitle(DEFAULT_JIHATSU_TEMPLATE, title)
+        : applyActivityTitle(DEFAULT_HOUDAY_TEMPLATE, title)
+    );
+
+    alert("初期テンプレートを初期状態に戻しました");
   };
 
   const saveTemplate = async () => {
@@ -182,8 +219,7 @@ export default function App() {
   };
 
   const copyTemplate = async (template) => {
-    const label =
-      template.recordType === "jihatsu" ? "児童発達支援" : "放デイ";
+    const label = template.recordType === "jihatsu" ? "児童発達支援" : "放デイ";
 
     const text = `【種別】
 ${label}
@@ -212,7 +248,8 @@ ${template.support}`;
     const typeLabel =
       template.recordType === "jihatsu" ? "児童発達支援 児発" : "放デイ";
 
-    const text = `${typeLabel} ${template.title} ${template.purpose} ${template.support}`.toLowerCase();
+    const text =
+      `${typeLabel} ${template.title} ${template.purpose} ${template.support}`.toLowerCase();
 
     return text.includes(keyword);
   });
@@ -282,6 +319,49 @@ ${template.support}`;
                 </span>
               </div>
             </div>
+
+            <button
+              type="button"
+              onClick={() => setShowTemplateEditor(!showTemplateEditor)}
+              style={subButtonStyle}
+            >
+              {showTemplateEditor
+                ? "初期テンプレート編集を閉じる"
+                : "初期テンプレートを編集"}
+            </button>
+
+            {showTemplateEditor && (
+              <div style={templateEditorStyle}>
+                <h3>初期テンプレート編集</h3>
+
+                <p style={{ fontWeight: "bold" }}>放デイ用</p>
+                <textarea
+                  value={houdayTemplate}
+                  onChange={(e) => setHoudayTemplate(e.target.value)}
+                  rows={8}
+                  style={textareaStyle}
+                />
+
+                <p style={{ fontWeight: "bold" }}>児童発達支援用</p>
+                <textarea
+                  value={jihatsuTemplate}
+                  onChange={(e) => setJihatsuTemplate(e.target.value)}
+                  rows={10}
+                  style={textareaStyle}
+                />
+
+                <button onClick={saveDefaultTemplates} style={mainButtonStyle}>
+                  初期テンプレートを保存
+                </button>
+
+                <button
+                  onClick={resetDefaultTemplates}
+                  style={subButtonStyle}
+                >
+                  初期状態に戻す
+                </button>
+              </div>
+            )}
 
             <input
               value={title}
@@ -403,6 +483,15 @@ const templateCardStyle = {
   borderRadius: 16,
   marginTop: 12,
   background: "#ffffff",
+};
+
+const templateEditorStyle = {
+  marginTop: 16,
+  marginBottom: 16,
+  padding: 16,
+  borderRadius: 16,
+  background: "#f8fafc",
+  border: "1px solid #e2e8f0",
 };
 
 const inputStyle = {
